@@ -21,6 +21,14 @@
             "args": []
         },
         {
+            "name": "Launch Resolver Client",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceRoot}/resolver/go/client",
+            "args": []
+        },
+        {
             "name": "Test Current File",
             "type": "go",
             "request": "launch",
