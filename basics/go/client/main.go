@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"reflect"
 	"strconv"
 
@@ -27,13 +28,14 @@ const (
 )
 
 var (
-	port = flag.Int("port", 50051, "The server port (will be ignored in case we use the custom resolver)")
+	host = flag.String("host", LookupEnvOrString("PRODUCT_INFO_SERVER", "localhost"), "The product info server host")
+	port = flag.Int("port", LookupEnvOrInt("PRODUCT_INFO_SERVER_PORT", 50051), "The server port")
 )
 
 func main() {
 	flag.Parse()
 
-	serverAddr := net.JoinHostPort("localhost", strconv.Itoa(*port))
+	serverAddr := net.JoinHostPort(*host, strconv.Itoa(*port))
 
 	opts := []grpc.DialOption{
 		grpc.WithUnaryInterceptor(loggingInterceptor),
@@ -50,6 +52,24 @@ func main() {
 	c := pb.NewProductInfoClient(conn)
 
 	callServer(c)
+}
+
+func LookupEnvOrString(key string, defaultVal string) string {
+	if val, ok := os.LookupEnv(key); ok {
+		return val
+	}
+	return defaultVal
+}
+
+func LookupEnvOrInt(key string, defaultVal int) int {
+	if val, ok := os.LookupEnv(key); ok {
+		v, err := strconv.Atoi(val)
+		if err != nil {
+			log.Fatalf("LookupEnvOrInt[%s]: %v", key, err)
+		}
+		return v
+	}
+	return defaultVal
 }
 
 // prepareContext with time and timeout

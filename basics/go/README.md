@@ -68,7 +68,7 @@ echo "Run load test"
  localhost:50051
 ```
 
-## Build Docker Container
+## Build and Run Docker Container
 
 Build the basic server:
 
@@ -81,3 +81,15 @@ Run the basic server (Windows git bash):
 ```bash
 winpty docker run -it grpc-productinfo-basic-server:latest
 ```
+
+Run client and server:
+
+```bash
+docker build -f ./server/Dockerfile -t grpc-productinfo-basic-server:latest .
+docker build -f ./client/Dockerfile -t grpc-productinfo-basic-client:latest .
+
+docker network create product-net
+winpty docker run -it --network=product-net --hostname=productinfo -p 50051:50051 grpc-productinfo-basic-server:latest
+winpty docker run -it --network=product-net --hostname=client --env PRODUCT_INFO_SERVER=productinfo grpc-productinfo-basic-client:latest
+```
+
