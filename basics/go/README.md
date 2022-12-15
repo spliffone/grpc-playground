@@ -18,6 +18,14 @@ Test:
 - Test client using [GoMock](https://github.com/golang/mock)
 - Test service starting a local gRPC server
 
+## Getting Started
+
+Run gRPC Server:
+
+```bash
+go run $(ls -1 server/*.go | grep -v _test.go)
+```
+
 ## Re-Generate Code
 
 - proto_path - is there to specify a proto root source directory
@@ -41,4 +49,35 @@ echo Install GoMock
 go install github.com/golang/mock/mockgen@v1.6.0
 mkdir mocks
 mockgen -source=proto/product_grpc.pb.go ProductInfoClient > mocks/productinfo_mock.go
+```
+
+## Load testing
+
+The following code show how to run load tests with [ghz - gRPC benchmarking and load testing tool](https://ghz.sh/).
+
+```bash
+curl -v -L --fail https://github.com/bojand/ghz/releases/download/v0.111.0/ghz-windows-x86_64.zip -o ghz-windows-x86_64.zip
+unzip ghz-windows-x86_64.zip
+
+echo "Run load test"
+./ghz --insecure\
+ --async \
+ --proto=product.proto \
+ --call=product.ProductInfo/addProduct \
+ -d '{"name":"Product {{.RequestNumber}}", "description":"Test Description {{.RequestNumber}}", "price": 17.13}' \
+ localhost:50051
+```
+
+## Build Docker Container
+
+Build the basic server:
+
+```bash
+docker build -f ./server/Dockerfile -t grpc-productinfo-basic-server:latest .
+```
+
+Run the basic server (Windows git bash):
+
+```bash
+winpty docker run -it grpc-productinfo-basic-server:latest
 ```
