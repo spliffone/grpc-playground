@@ -13,6 +13,11 @@ Client Features:
 - Pass additional headers to each RPC request
 - Enhanced RPC error status parsing
 
+Test:
+
+- Test client using [GoMock](https://github.com/golang/mock)
+- Test service starting a local gRPC server
+
 ## Re-Generate Code
 
 - proto_path - is there to specify a proto root source directory
@@ -27,4 +32,13 @@ protoc --proto_path=$(pwd)/../.. \
   --go-grpc_out=proto\
   --go-grpc_opt=paths=source_relative\
    $(pwd)/../../product.proto
+```
+
+## Re-Generate [GoMocks](https://github.com/golang/mock)
+
+```bash
+echo Install GoMock 
+go install github.com/golang/mock/mockgen@v1.6.0
+mkdir mocks
+mockgen -source=proto/product_grpc.pb.go ProductInfoClient > mocks/productinfo_mock.go
 ```

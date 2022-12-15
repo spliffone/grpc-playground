@@ -67,7 +67,10 @@ func prepareContext() (context.Context, context.CancelFunc) {
 func callServer(c pb.ProductInfoClient) {
 
 	// create a new product
-	r := addProduct(c)
+	r := addProduct(c, &pb.Product{
+		Name:        "Apple iPhone 11",
+		Description: "Meet Apple iPhone 11.",
+		Price:       float32(1000.0)})
 	// get the new product
 	getProduct(c, r.Value)
 	// search for a product
@@ -76,15 +79,13 @@ func callServer(c pb.ProductInfoClient) {
 	getProduct(c, "-1")
 }
 
-func addProduct(c pb.ProductInfoClient) *pb.ProductID {
+func addProduct(c pb.ProductInfoClient, newProduct *pb.Product) *pb.ProductID {
 	ctx, cancel := prepareContext()
 	defer cancel()
 
 	var responseHeader, trailer metadata.MD
-	r, err := c.AddProduct(ctx, &pb.Product{
-		Name:        "Apple iPhone 11",
-		Description: "Meet Apple iPhone 11.",
-		Price:       float32(1000.0)},
+	r, err := c.AddProduct(ctx,
+		newProduct,
 		grpc.Header(&responseHeader),
 		grpc.Trailer(&trailer))
 	if err != nil {
