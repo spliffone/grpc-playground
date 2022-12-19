@@ -1,0 +1,194 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"reflect"
+	"strconv"
+
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	pb "github.com/spliffone/grpc-playground/observability/go/proto"
+
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+
+	"time"
+
+	"google.golang.org/grpc"
+)
+
+const (
+	timeout = 2
+)
+
+var (
+	host = flag.String("host", LookupEnvOrString("PRODUCT_INFO_SERVER", "localhost"), "The product info server host")
+	port = flag.Int("port", LookupEnvOrInt("PRODUCT_INFO_SERVER_PORT", 50051), "The server port")
+)
+
+func main() {
+	flag.Parse()
+
+	serverAddr := net.JoinHostPort(*host, strconv.Itoa(*port))
+
+	reg := prometheus.NewRegistry()
+	grpcMetrics := grpc_prometheus.NewClientMetrics()
+	reg.MustRegister(grpcMetrics)
+
+	opts := []grpc.DialOption{
+		grpc.WithUnaryInterceptor(grpcMetrics.UnaryClientInterceptor()),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+
+	conn, err := grpc.Dial(serverAddr, opts...)
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+
+	// Create a HTTP server for prometheus.
+	httpServer := &http.Server{
+		Handler: promhttp.HandlerFor(reg, promhttp.HandlerOpts{}),
+		Addr:    fmt.Sprintf("0.0.0.0:%d", 9094),
+	}
+
+	// Start your http server for prometheus.
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil {
+			log.Fatal("Unable to start a http server.")
+		}
+	}()
+
+	c := pb.NewProductInfoClient(conn)
+
+	callServer(c)
+}
+
+func LookupEnvOrString(key string, defaultVal string) string {
+	if val, ok := os.LookupEnv(key); ok {
+		return val
+	}
+	return defaultVal
+}
+
+func LookupEnvOrInt(key string, defaultVal int) int {
+	if val, ok := os.LookupEnv(key); ok {
+		v, err := strconv.Atoi(val)
+		if err != nil {
+			log.Fatalf("LookupEnvOrInt[%s]: %v", key, err)
+		}
+		return v
+	}
+	return defaultVal
+}
+
+// prepareContext with time and timeout
+func prepareContext() (context.Context, context.CancelFunc) {
+	// Setup deadline
+	clientDeadline := time.Now().Add(time.Duration(timeout * time.Second))
+	ctx, cancel := context.WithDeadline(context.Background(), clientDeadline)
+
+	// Create Client Metadata which is send to the server
+	return metadata.NewOutgoingContext(ctx, metadata.Pairs(
+		"timestamp", time.Now().Format(time.StampNano),
+	)), cancel
+}
+
+func callServer(c pb.ProductInfoClient) {
+
+	// create a new product
+	r := addProduct(c, &pb.Product{
+		Name:        "Apple iPhone 11",
+		Description: "Meet Apple iPhone 11.",
+		Price:       float32(1000.0)})
+	// get the new product
+	getProduct(c, r.Value)
+	// search for a product
+	searchProducts(c)
+	// get an extended error since the product ID is invalid
+	getProduct(c, "-1")
+}
+
+func addProduct(c pb.ProductInfoClient, newProduct *pb.Product) *pb.ProductID {
+	ctx, cancel := prepareContext()
+	defer cancel()
+
+	var responseHeader, trailer metadata.MD
+	r, err := c.AddProduct(ctx,
+		newProduct,
+		grpc.Header(&responseHeader),
+		grpc.Trailer(&trailer))
+	if err != nil {
+		got := status.Code(err)
+		log.Printf("Error Occurred -> addOrder : , %v:", got)
+		log.Fatalf("Could not add product: %v", err)
+	}
+
+	log.Printf("Product ID: %s added successfully headers: %v, trailers: %v", r.Value, responseHeader, trailer)
+	return r
+}
+
+func getProduct(c pb.ProductInfoClient, v string) {
+	ctx, cancel := prepareContext()
+	defer cancel()
+
+	product, err := c.GetProduct(ctx, &pb.ProductID{Value: v})
+	if err != nil {
+		errorCode := status.Code(err)
+		errorStatus := status.Convert(err)
+		log.Printf("Get Product Error : %s", errorCode)
+		for _, detail := range errorStatus.Details() {
+			log.Printf("%v", reflect.TypeOf(detail).String())
+
+			switch t := detail.(type) {
+			case *errdetails.BadRequest:
+				fmt.Println("Your request was rejected by the server.")
+				for _, violation := range t.GetFieldViolations() {
+					fmt.Printf("The %q field was wrong:\n", violation.GetField())
+					fmt.Printf("\t%s\n", violation.GetDescription())
+				}
+			default:
+				log.Printf("Unexpected error type: %s", t)
+			}
+		}
+
+	}
+	log.Printf("Product: %s", product.String())
+}
+
+func searchProducts(c pb.ProductInfoClient) {
+	ctx, cancel := prepareContext()
+	defer cancel()
+
+	searchStream, err := c.SearchProducts(ctx, &pb.SearchQuery{Value: "Apple"})
+	if err != nil {
+		log.Fatalf("Could not get products: %v", err)
+	}
+StreamLoop:
+	for {
+		searchProduct, err := searchStream.Recv()
+		if err != nil {
+			switch err {
+			case io.EOF:
+				break StreamLoop
+			default:
+				log.Printf("Unhandled error %s", err)
+				break StreamLoop
+			}
+		}
+
+		// handle other possible errors
+		log.Print("Search Result : ", searchProduct)
+	}
+}
